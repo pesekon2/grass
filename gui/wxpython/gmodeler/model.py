@@ -15,6 +15,7 @@ Classes:
  - model::ModelComment
  - model::ProcessModelFile
  - model::WriteModelFile
+ - model::WritePyWPSFile
  - model::WritePythonFile
  - model::ModelParamDialog
 
@@ -24,7 +25,7 @@ This program is free software under the GNU General Public License
 (>=v2). Read the file COPYING that comes with GRASS for details.
 
 @author Martin Landa <landa.martin gmail.com>
-@author Python parameterization Ondrej Pesek <pesej.ondrek gmail.com>
+@PyWPS, Python parameterization Ondrej Pesek <pesej.ondrek gmail.com>
 """
 
 import os
@@ -671,9 +672,9 @@ class Model(object):
                     '\n'.join(
                         map(
                             lambda x: "%s: %s (%s)" %
-                            (x[0],
-                             x[1],
-                             x[2]),
+                                      (x[0],
+                                       x[1],
+                                       x[2]),
                             err)))
                 return
 
@@ -2499,6 +2500,412 @@ class WriteModelFile:
              comment.GetLabel()))
 
 
+class WritePyWPSFile:
+
+    def __init__(self, filename, pythonScript, model):
+        """Class for exporting model to PyWPS script
+
+        """
+        self.indent = 8
+        pythonScript = open(pythonScript, 'rb')
+        self.readPythonScript = pythonScript.readlines()
+        pythonScript.close()
+
+        self.fd = open(filename, 'w')
+        self.model = model
+        self._writePyWPS()
+
+    def _writePyWPS(self):
+        """Write PyWPS model to file"""
+        linePos = 18
+        properties = self.model.GetProperties()
+
+        self.fd.write(r"""#!/usr/bin/env python3
+
+import sys
+import os
+import atexit
+import tempfile
+from grass.script import run_command
+from pywps import Process, LiteralInput, ComplexInput, ComplexOutput, Format
+from pywps.app.Service import Service
+from pywps.inout.formats import FORMATS
+
+supFormats = [Format(form.mime_type) for form in FORMATS]
+
+
+class Model(Process):
+
+    def __init__(self):
+        inputs = list()
+        outputs = list()
+
+""")
+
+        for item in self.model.GetItems():
+            self._write_input_outputs(item,
+                                      variables=item.GetParameterizedParams())
+
+        # TODO: Specify grass_location
+        self.fd.write(r"""        super(Model, self).__init__(
+            self._handler,
+            identifier='{identifier}',
+            title='{title}',
+            inputs=inputs,
+            outputs=outputs,
+            abstract='{abstract}',
+            version='1.0',
+            store_supported=True,
+            status_supported=True)
+""".format(identifier=properties['name'], title=properties['name'],
+           abstract="''".join(properties['description'].splitlines())))
+
+        self.fd.write("""
+    @staticmethod
+    def _handler(request, response):""")
+
+        self._writeHandler()
+
+        for item in self.model.GetItems():
+            if item.GetParameterizedParams()['flags']:
+                self.fd.write(r"""
+def getParameterizedFlags(paramFlags, itemFlags):
+    fl = ''
+    for i in [key for key, value in paramFlags.items() if value[0].data == 'True']:
+        if i in itemFlags:
+            fl += i[-1]
+
+    return fl
+""")
+                break
+
+        self.fd.write("""
+
+if __name__ == "__main__":
+    process = Model()
+
+    processes = [Model()]
+    application = Service(processes)
+""")
+
+        self.fd.close()
+
+    def _write_input_outputs(self, item, variables):
+        # TODO: Default values
+        for flag in item.GetParameterizedParams()['flags']:
+            if flag['label']:
+                desc = flag['label']
+            else:
+                desc = flag['description']
+
+            if flag['value']:
+                value = "\n{}default='{}'".format(' ' * (self.indent + 4),
+                                                  flag['value'])
+            else:
+                value = "\n{}default='False'".format(' ' * (self.indent + 4))
+
+            io_data = 'inputs'
+            object_type = 'LiteralInput'
+            format_spec = "data_type='string',"
+
+            self._write_input_output_object(
+                io_data, object_type, flag['name'], item, desc, format_spec, value)
+
+
+        for param in item.GetParameterizedParams()['params']:
+            desc = self._getParamDesc(param)
+            value = self._getParamValue(param)
+
+            if 'input' in param['name']:
+                io_data = 'inputs'
+                object_type = 'ComplexInput'
+                format_spec = 'supported_formats=supFormats'
+            else:
+                io_data = 'inputs'
+                object_type = 'LiteralInput'
+                format_spec = "data_type='{}'".format(param['type'])
+
+            self._write_input_output_object(
+                io_data, object_type, param['name'], item, desc, format_spec,
+                value)
+
+        self.fd.write('\n')
+
+        # write ComplexOutputs
+        for param in item.GetParams()['params']:
+            desc = self._getParamDesc(param)
+            value = self._getParamValue(param)
+
+            if param['age'] == 'new':
+                io_data = 'outputs'
+                object_type = 'ComplexOutput'
+                format_spec = 'supported_formats=supFormats'
+
+                self._write_input_output_object(
+                    io_data, object_type, param['name'], item, desc,
+                    format_spec,
+                    value)
+
+        self.fd.write('\n')
+
+    def _write_input_output_object(self, io_data, object_type, name, item,
+                                   desc, format_spec, value):
+        self.fd.write(
+"""        {ins_or_outs}.append({lit_or_complex}(
+            identifier='{param_name}',
+            title='{description}',
+            {special_params}{value}))
+""".format(ins_or_outs=io_data,
+           lit_or_complex=object_type,
+           param_name=self._getParamName(name, item),
+           description=desc,
+           special_params=format_spec,
+           value=value))
+
+    def _writeHandler(self):
+        for item in self.model.GetItems():
+            self._writePythonItem(item,
+                                  variables=item.GetParameterizedParams())
+
+        self.fd.write('\n{}return response\n\n'.format(' ' * self.indent))
+
+    def _writePythonItem(self, item, ignoreBlock=True, variables={}):
+        """Write model object to Python file"""
+        if isinstance(item, ModelAction):
+            if ignoreBlock and item.GetBlockId():
+                # ignore items in loops of conditions
+                return
+            self._writePythonAction(item, variables=variables)
+        elif isinstance(item, ModelLoop) or isinstance(item, ModelCondition):
+            # substitute condition
+            cond = item.GetLabel()
+            for variable in self.model.GetVariables():
+                pattern = re.compile('%' + variable)
+                if pattern.search(cond):
+                    value = variables[variable].get('value', '')
+                    if variables[variable].get('type', 'string') == 'string':
+                        value = '"' + value + '"'
+                    cond = pattern.sub(value, cond)
+            if isinstance(item, ModelLoop):
+                condVar, condText = map(
+                    lambda x: x.strip(),
+                    re.split('\s* in \s*', cond))
+                cond = "%sfor %s in " % (' ' * self.indent, condVar)
+                if condText[0] == '`' and condText[-1] == '`':
+                    task = GUI(
+                        show=None).ParseCommand(
+                        cmd=utils.split(
+                            condText[
+                                1:-
+                                1]))
+                    cond += "grass.read_command("
+                    cond += self._getPythonActionCmd(
+                        task, len(cond), variables=[condVar]) + ".splitlines()"
+                else:
+                    cond += condText
+                self.fd.write('%s:\n' % cond)
+                self.indent += 4
+                variablesLoop = variables.copy()
+                variablesLoop[condVar] = None
+                for action in item.GetItems(
+                        self.model.GetItems(objType=ModelAction)):
+                    self._writePythonItem(
+                        action, ignoreBlock=False, variables=variablesLoop)
+                self.indent -= 4
+            if isinstance(item, ModelCondition):
+                self.fd.write('%sif %s:\n' % (' ' * self.indent, cond))
+                self.indent += 4
+                condItems = item.GetItems()
+                for action in condItems['if']:
+                    self._writePythonItem(action, ignoreBlock=False)
+                if condItems['else']:
+                    self.indent -= 4
+                    self.fd.write('%selse:\n' % (' ' * self.indent))
+                    self.indent += 4
+                    for action in condItems['else']:
+                        self._writePythonItem(action, ignoreBlock=False)
+                self.indent += 4
+        self.fd.write('\n')
+        if isinstance(item, ModelComment):
+            self._writePythonComment(item)
+
+    def _writePythonAction(self, item, variables={}):
+        """Write model action to Python file"""
+        task = GUI(show=None).ParseCommand(cmd=item.GetLog(string=False))
+        strcmd = "\n%srun_command(" % (' ' * self.indent)
+        self.fd.write(
+            strcmd +
+            self._getPythonActionCmd(
+                item,
+                task,
+                len(strcmd) - 1,
+                variables))
+
+        # write v.out.ogr and r.out.gdal exports for all outputs
+        for param in item.GetParams()['params']:
+            if param['age'] == 'new':
+                if param['prompt'] == 'vector':
+                    command = 'v.out.ogr'
+                    format = "'GML'"
+                    extension = '.gml'
+                elif param['prompt'] == 'raster':
+                    command = 'r.out.gdal'
+                    format = "'GTiff'"
+                    extension = '.tif'
+                else:
+                    # TODO: Support 3D
+                    command = 'WRITE YOUR EXPORT COMMAND'
+
+                n = param.get('name', None)
+                param_name = self._getParamName(n, item)
+
+                keys = param.keys()
+                if 'parameterized' in keys and param['parameterized'] is True:
+                    param_request = "request.inputs['{}'][0].data".format(
+                        param_name)
+                else:
+                    param_request = "'{}'".format(param['value'])
+
+                self.fd.write("""
+{run_command}'{cmd}',
+{indent1}input={input},
+{indent2}output=os.path.join(
+{indent3}tempfile.gettempdir(),
+{indent4}{out} + '{format_ext}'),
+{indent5}format={format})
+""".format(run_command=strcmd,
+           cmd=command,
+           indent1=' ' * (self.indent + 12),
+           input=param_request,
+           indent2=' ' * (self.indent + 12),
+           indent3=' ' * (self.indent + 16),
+           indent4=' ' * (self.indent + 16),
+           out=param_request,
+           format_ext=extension,
+           indent5=' ' * (self.indent + 12),
+           format=format))
+
+                left_side_out = "response.outputs['{}'].file".format(
+                    param_name)
+                right_side_out = "os.path.join(\n{indent1}" \
+                                 "tempfile.gettempdir(),\n{indent2}{out} + '" \
+                                 "{format_ext}')".format(
+                    indent1=' ' * (self.indent + 4),
+                    indent2=' ' * (self.indent + 4),
+                    out=param_request,
+                    format_ext=extension)
+                self.fd.write('\n{}{} = {}'.format(' ' * self.indent,
+                                                   left_side_out,
+                                                   right_side_out))
+
+    def _getPythonActionCmd(self, item, task, cmdIndent, variables={}):
+        opts = task.get_options()
+
+        ret = ''
+        flags = ''
+        params = list()
+        itemParameterizedFlags = list()
+        parameterizedParams = [v['name'] for v in variables['params']]
+        parameterizedFlags = [v['name'] for v in variables['flags']]
+
+        for f in opts['flags']:
+            if f.get('name') in parameterizedFlags and len(f.get('name')) == 1:
+                itemParameterizedFlags.append(
+                    '"{}"'.format(self._getParamName(f.get('name'), item)))
+            if f.get('value', False):
+                name = f.get('name', '')
+                if len(name) > 1:
+                    params.append('%s=True' % name)
+                else:
+                    flags += name
+
+        itemParameterizedFlags = ', '.join(itemParameterizedFlags)
+
+        out = None
+
+        for p in opts['params']:
+            name = p.get('name', None)
+            value = p.get('value', None)
+
+            if (name and value) or (name in parameterizedParams):
+                ptype = p.get('type', 'string')
+                foundVar = False
+
+                if name in parameterizedParams:
+                    foundVar = True
+                    if 'input' in name:
+                        value = "request.inputs['{}'][0].file".format(
+                            self._getParamName(name, item))
+                    else:
+                        value = "request.inputs['{}'][0].data".format(
+                            self._getParamName(name, item))
+
+                if foundVar or ptype != 'string':
+                    params.append("{}={}".format(name, value))
+                else:
+                    params.append('{}="{}"'.format(name, value))
+
+        ret += '"%s"' % task.get_name()
+        if flags:
+            ret += ",\n{indent}flags='{fl}'".format(indent=' ' * cmdIndent,
+                                                    fl=flags)
+            if itemParameterizedFlags:
+                ret += ' + getParameterizedFlags(\n{}request.inputs, ' \
+                       '[{}])'.format(' ' * (cmdIndent + 4),
+                                      itemParameterizedFlags)
+        elif itemParameterizedFlags:
+            ret += ',\n{}flags=getParameterizedFlags(request.inputs, [{}])'.format(
+                ' ' * cmdIndent,
+                itemParameterizedFlags)
+
+        if len(params) > 0:
+            ret += ",\n"
+            for opt in params[:-1]:
+                ret += "%s%s,\n" % (' ' * cmdIndent, opt)
+            ret += "%s%s)" % (' ' * cmdIndent, params[-1])
+        else:
+            ret += ")\n"
+
+        # TODO: Write the nex line only for those not-tagged as intermediate
+        if out:
+            ret += '\n\n{}response.outputs["{}"].file = "{}"'.format(
+                ' ' * self.indent, out, out)
+
+        return ret
+
+    def _writePythonComment(self, item):
+        """Write model comment to Python file"""
+        for line in item.GetLabel().splitlines():
+            self.fd.write('#' + line + '\n')
+
+    def _getParamName(self, parameter_name, item):
+        return '{module_name}{module_id}_{param_name}'.format(
+            module_name=re.sub('[^a-zA-Z]+', '', item.GetLabel()),
+            module_id=item.GetId(),
+            param_name=parameter_name)
+
+    def _getParamDesc(self, param):
+        if param['label']:
+            desc = param['label']
+        else:
+            desc = param['description']
+
+        return desc
+
+    def _getParamValue(self, param):
+        if param['value'] and 'output' not in param['name']:
+            if param['type'] in ['float', 'integer']:
+                value = param['value']
+            else:
+                value = "'{}'".format(param['value'])
+
+            value = ",\n{}default={}".format(' ' * (self.indent + 4),
+                                             value)
+        else:
+            value = ''
+
+        return value
+
 class WritePythonFile:
 
     def __init__(self, fd, model):
@@ -2532,6 +2939,12 @@ class WritePythonFile:
         """Write model to file"""
         properties = self.model.GetProperties()
 
+        # TODO: Change for the real version
+        if 'landa' not in properties['author'] and 'martin' not in properties['author']:
+            userName = properties['author']
+        else:
+            userName = 'The drunk guy sleeping under the defendant table'
+
         # header
         self.fd.write(
             r"""#!/usr/bin/env python3
@@ -2548,11 +2961,11 @@ class WritePythonFile:
 #
 #{header_end}
 """.format(header_begin='#' * 77,
-                module_name=properties['name'],
-                author=properties['author'],
-                purpose='\n# '.join(properties['description'].splitlines()),
-                date=time.asctime(),
-                header_end='#' * 77))
+               module_name=properties['name'],
+               author=userName,
+               purpose='\n# '.join(properties['description'].splitlines()),
+               date=time.asctime(),
+               header_end='#' * 77))
 
         # UI
         self.fd.write(
@@ -2655,9 +3068,7 @@ def cleanup():
                 self.fd.write(r"""
 def getParameterizedFlags(paramFlags, itemFlags):
     fl = ''
-""")
-
-                self.fd.write("""    for i in [key for key, value in paramFlags.items() if value == 'True']:
+    for i in [key for key, value in paramFlags.items() if value == 'True']:
         if i in itemFlags:
             fl += i[-1]
 

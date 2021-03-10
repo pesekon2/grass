@@ -17,7 +17,7 @@ This program is free software under the GNU General Public License
 (>=v2). Read the file COPYING that comes with GRASS for details.
 
 @author Martin Landa <landa.martin gmail.com>
-@author Python parameterization Ondrej Pesek <pesej.ondrek gmail.com>
+@PyWPS, Python parameterization Ondrej Pesek <pesej.ondrek gmail.com>
 """
 
 import os
@@ -135,6 +135,7 @@ class ModelFrame(wx.Frame):
         self.itemPanel = ItemPanel(parent=self)
 
         self.pythonPanel = PythonPanel(parent=self)
+        self.pyWPSPanel = PyWPSPanel(parent=self)
 
         self._gconsole = GConsole(guiparent=self)
         self.goutput = GConsoleWindow(
@@ -173,6 +174,10 @@ class ModelFrame(wx.Frame):
             page=self.pythonPanel,
             text=_('Python editor'),
             name='python')
+        self.notebook.AddPage(
+            page=self.pyWPSPanel,
+            text=_('PyWPS editor'),
+            name='pywps')
         self.notebook.AddPage(
             page=self.goutput,
             text=_('Command output'),
@@ -251,6 +256,7 @@ class ModelFrame(wx.Frame):
     def OnPageChanged(self, event):
         """Page in notebook changed"""
         page = event.GetSelection()
+
         if page == self.notebook.GetPageIndexByName('python'):
             if self.pythonPanel.IsEmpty():
                 self.pythonPanel.RefreshScript()
@@ -260,6 +266,15 @@ class ModelFrame(wx.Frame):
                     _('Python script contains local modifications'), 0)
             else:
                 self.SetStatusText(_('Python script is up-to-date'), 0)
+        elif page == self.notebook.GetPageIndexByName('pywps'):
+            if self.pyWPSPanel.IsEmpty():
+                self.pyWPSPanel.RefreshScript()
+
+            if self.pyWPSPanel.IsModified():
+                self.SetStatusText(
+                    _('PyWPS script contains local modifications'), 0)
+            else:
+                self.SetStatusText(_('PyWPS script is up-to-date'), 0)
         elif page == self.notebook.GetPageIndexByName('items'):
             self.itemPanel.Update()
 
@@ -1969,6 +1984,191 @@ class ItemPanel(wx.Panel):
         self.parent.ModelChanged()
 
 
+class PyWPSPanel(wx.Panel):
+
+    def __init__(self, parent, id=wx.ID_ANY,
+                 **kwargs):
+        """Model as pyWPS script.
+        """
+        self.parent = parent
+
+        wx.Panel.__init__(self, parent=parent, id=id, **kwargs)
+
+        self.pyFilename = None  # temp file with python script
+
+        self.bodyBox = StaticBox(parent=self, id=wx.ID_ANY,
+                                    label=" %s " % _("PyWPS script"))
+        self.body = PyStc(parent=self, statusbar=self.parent.GetStatusBar())
+        if IsDark():
+            SetDarkMode(self.body)
+
+        self.btnSaveAs = Button(parent=self, id=wx.ID_SAVEAS)
+        self.btnSaveAs.SetToolTip(_("Save PyWPS script to file"))
+        self.Bind(wx.EVT_BUTTON, self.OnSaveAs, self.btnSaveAs)
+        self.btnRefresh = wx.Button(parent=self, id=wx.ID_REFRESH)
+        self.btnRefresh.SetToolTip(_(
+            "Refresh PyWPS script.\n"
+            "It will discard all local changes."))
+        self.Bind(wx.EVT_BUTTON, self.OnRefresh, self.btnRefresh)
+
+        self._layout()
+
+    def _layout(self):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        bodySizer = wx.StaticBoxSizer(self.bodyBox, wx.HORIZONTAL)
+        btnSizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        bodySizer.Add(self.body, proportion=1,
+                      flag=wx.EXPAND | wx.ALL, border=3)
+
+        btnSizer.Add(self.btnRefresh, proportion=0,
+                     flag=wx.LEFT | wx.RIGHT, border=5)
+        btnSizer.AddStretchSpacer()
+        btnSizer.Add(self.btnSaveAs, proportion=0,
+                     flag=wx.RIGHT | wx.ALIGN_RIGHT, border=5)
+
+        sizer.Add(bodySizer, proportion=1,
+                  flag=wx.EXPAND | wx.ALL, border=3)
+        sizer.Add(btnSizer, proportion=0,
+                  flag=wx.EXPAND | wx.ALL, border=3)
+
+        sizer.Fit(self)
+        sizer.SetSizeHints(self)
+        self.SetSizer(sizer)
+
+    def SaveAs(self, force=False):
+        """Save PyWPS script to file.
+
+        :return: filename
+        """
+        filename = ''
+        dlg = wx.FileDialog(
+            parent=self,
+            message=_("Choose file to save"),
+            defaultFile=os.path.basename(
+                self.parent.GetModelFile(
+                    ext=False)),
+            defaultDir=os.getcwd(),
+            wildcard=_("Python script (*.py)|*.py"),
+            style=wx.FD_SAVE)
+
+        if dlg.ShowModal() == wx.ID_OK:
+            filename = dlg.GetPath()
+
+        if not filename:
+            return ''
+
+        # check for extension
+        if filename[-3:] != ".py":
+            filename += ".py"
+
+        if os.path.exists(filename):
+            dlg = wx.MessageDialog(
+                self,
+                message=_(
+                    "File <%s> already exists. "
+                    "Do you want to overwrite this file?") %
+                filename,
+                caption=_("Save file"),
+                style=wx.YES_NO | wx.YES_DEFAULT | wx.ICON_QUESTION)
+            if dlg.ShowModal() == wx.ID_NO:
+                dlg.Destroy()
+                return ''
+
+            dlg.Destroy()
+
+        try:
+            fd = open(self.pyFilename, "w")
+            fd.write(self.parent.pythonPanel.body.GetText())
+
+        except IOError as e:
+            GError(_("Unable to launch Python script. %s") % e,
+                   parent=self)
+            return
+        finally:
+            fd.close()
+            mode = stat.S_IMODE(os.lstat(self.pyFilename)[stat.ST_MODE])
+            os.chmod(self.pyFilename, mode | stat.S_IXUSR)
+
+        WritePyWPSFile(filename, fd.name, self.parent.GetModel())
+
+        # executable file
+        os.chmod(filename, stat.S_IRWXU | stat.S_IWUSR)
+
+        return filename
+
+    def OnSaveAs(self, event):
+        """Save PyWPS script to file."""
+        self.SaveAs(force=False)
+        event.Skip()
+
+    def RefreshScript(self):
+        """Refresh Python script
+
+        :return: True on refresh
+        :return: False script hasn't been updated
+        """
+
+        if len(self.parent.GetModel().GetItems()) == 0:
+            self.body.SetText('')
+            return True
+
+        if self.body.modified:
+            dlg = wx.MessageDialog(
+                self,
+                message=_(
+                    "PyWPS script is locally modified. "
+                    "Refresh will discard all changes. "
+                    "Do you really want to continue?"),
+                caption=_("Update"),
+                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION | wx.CENTRE)
+            ret = dlg.ShowModal()
+            dlg.Destroy()
+            if ret == wx.ID_NO:
+                return False
+
+        if not self.pyFilename:
+            self.pyFilename = grass.tempfile()
+
+        try:
+            pyfd = open(self.pyFilename, "w")
+            pyfd.write(self.parent.pythonPanel.body.GetText())
+
+        except IOError as e:
+            GError(_("Unable to launch Python script. %s") % e,
+                   parent=self)
+            return
+        finally:
+            pyfd.close()
+            mode = stat.S_IMODE(os.lstat(self.pyFilename)[stat.ST_MODE])
+            os.chmod(self.pyFilename, mode | stat.S_IXUSR)
+
+        pywpsfd = grass.tempfile()
+
+        WritePyWPSFile(pywpsfd, pyfd.name, self.parent.GetModel())
+        fd2 = open(pywpsfd, 'rb')
+        self.body.SetText(fd2.read())
+        fd2.close()
+
+        self.body.modified = False
+
+        return True
+
+    def OnRefresh(self, event):
+        """Refresh PyWPS script."""
+        if self.RefreshScript():
+            self.parent.SetStatusText(_('PyWPS script is up-to-date'), 0)
+        event.Skip()
+
+    def IsModified(self):
+        """Check if PyWPS script has been modified."""
+        return self.body.modified
+
+    def IsEmpty(self):
+        """Check if python script is empty."""
+        return len(self.body.GetText()) == 0
+
+
 class PythonPanel(wx.Panel):
 
     def __init__(self, parent, id=wx.ID_ANY,
@@ -2144,6 +2344,8 @@ class PythonPanel(wx.Panel):
         fd.seek(0)
         self.body.SetText(fd.read())
         fd.close()
+
+        self.parent.pyWPSPanel.RefreshScript()
 
         self.body.modified = False
 
