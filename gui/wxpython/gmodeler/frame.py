@@ -29,6 +29,7 @@ import random
 import six
 
 import wx
+from abc import abstractmethod
 from wx.lib import ogl
 from core import globalvar
 if globalvar.wxPythonPhoenix:
@@ -1984,59 +1985,24 @@ class ItemPanel(wx.Panel):
         self.parent.ModelChanged()
 
 
-class PyWPSPanel(wx.Panel):
+class ScriptPanel(wx.Panel):
+    """Abstract class for panels with scripts based on the model."""
 
-    def __init__(self, parent, id=wx.ID_ANY,
-                 **kwargs):
-        """Model as pyWPS script.
-        """
-        self.parent = parent
+    @abstractmethod
+    def __init__(self, parent, id=wx.ID_ANY, **kwargs):
+        """Initialize the panel."""
+        # the following objects have to be overriden in __init__()
+        self.write_object = None
+        self.script_type = ''
+        pass
 
-        wx.Panel.__init__(self, parent=parent, id=id, **kwargs)
-
-        self.pyFilename = None  # temp file with python script
-
-        self.bodyBox = StaticBox(parent=self, id=wx.ID_ANY,
-                                 label=" %s " % _("PyWPS script"))
-        self.body = PyStc(parent=self, statusbar=self.parent.GetStatusBar())
-        if IsDark():
-            SetDarkMode(self.body)
-
-        self.btnSaveAs = Button(parent=self, id=wx.ID_SAVEAS)
-        self.btnSaveAs.SetToolTip(_("Save PyWPS script to file"))
-        self.Bind(wx.EVT_BUTTON, self.OnSaveAs, self.btnSaveAs)
-        self.btnRefresh = wx.Button(parent=self, id=wx.ID_REFRESH)
-        self.btnRefresh.SetToolTip(_("Refresh PyWPS script.\n"
-                                     "It will discard all local changes."))
-        self.Bind(wx.EVT_BUTTON, self.OnRefresh, self.btnRefresh)
-
-        self._layout()
-
+    @abstractmethod
     def _layout(self):
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        bodySizer = wx.StaticBoxSizer(self.bodyBox, wx.HORIZONTAL)
-        btnSizer = wx.BoxSizer(wx.HORIZONTAL)
-
-        bodySizer.Add(self.body, proportion=1,
-                      flag=wx.EXPAND | wx.ALL, border=3)
-
-        btnSizer.Add(self.btnRefresh, proportion=0,
-                     flag=wx.LEFT | wx.RIGHT, border=5)
-        btnSizer.AddStretchSpacer()
-        btnSizer.Add(self.btnSaveAs, proportion=0,
-                     flag=wx.RIGHT, border=5)
-
-        sizer.Add(bodySizer, proportion=1,
-                  flag=wx.EXPAND | wx.ALL, border=3)
-        sizer.Add(btnSizer, proportion=0,
-                  flag=wx.EXPAND | wx.ALL, border=3)
-
-        sizer.Fit(self)
-        sizer.SetSizeHints(self)
-        self.SetSizer(sizer)
+        """Set the panel layout."""
+        pass
 
     def SaveAs(self, force=False):
-        """Save PyWPS script to file.
+        """Save the script to a file.
 
         :return: filename
         """
@@ -2079,7 +2045,7 @@ class PyWPSPanel(wx.Panel):
         fd = open(filename, "w")
         try:
             if force:
-                WritePyWPSFile(fd, self.parent.GetModel())
+                self.write_object(fd, self.parent.GetModel())
             else:
                 fd.write(self.body.GetText())
         finally:
@@ -2091,18 +2057,18 @@ class PyWPSPanel(wx.Panel):
         return filename
 
     def OnSaveAs(self, event):
-        """Save PyWPS script to file."""
+        """Save the script to a file."""
         self.SaveAs(force=False)
         event.Skip()
 
     def RefreshScript(self):
-        """Refresh Python script
+        """Refresh the script.
 
         :return: True on refresh
         :return: False script hasn't been updated
         """
-
         if len(self.parent.GetModel().GetItems()) == 0:
+            # no need to fully parse an empty script
             self.body.SetText('')
             return True
 
@@ -2110,9 +2076,9 @@ class PyWPSPanel(wx.Panel):
             dlg = wx.MessageDialog(
                 self,
                 message=_(
-                    "PyWPS script is locally modified. "
+                    "{} script is locally modified. "
                     "Refresh will discard all changes. "
-                    "Do you really want to continue?"),
+                    "Do you really want to continue?".format(self.script_type)),
                 caption=_("Update"),
                 style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION | wx.CENTRE)
             ret = dlg.ShowModal()
@@ -2121,7 +2087,7 @@ class PyWPSPanel(wx.Panel):
                 return False
 
         fd = tempfile.TemporaryFile(mode='r+')
-        WritePyWPSFile(fd, self.parent.GetModel())
+        self.write_object(fd, self.parent.GetModel())
         fd.seek(0)
         self.body.SetText(fd.read())
         fd.close()
@@ -2131,21 +2097,22 @@ class PyWPSPanel(wx.Panel):
         return True
 
     def OnRefresh(self, event):
-        """Refresh PyWPS script."""
+        """Refresh the script."""
         if self.RefreshScript():
-            self.parent.SetStatusText(_('PyWPS script is up-to-date'), 0)
+            self.parent.SetStatusText(
+                _('{} script is up-to-date'.format(self.script_type)), 0)
         event.Skip()
 
     def IsModified(self):
-        """Check if PyWPS script has been modified."""
+        """Check if the script has been modified."""
         return self.body.modified
 
     def IsEmpty(self):
-        """Check if python script is empty."""
+        """Check if the script is empty."""
         return len(self.body.GetText()) == 0
 
 
-class PythonPanel(wx.Panel):
+class PythonPanel(ScriptPanel):
 
     def __init__(self, parent, id=wx.ID_ANY,
                  **kwargs):
@@ -2175,6 +2142,10 @@ class PythonPanel(wx.Panel):
         self.Bind(wx.EVT_BUTTON, self.OnRefresh, self.btnRefresh)
 
         self._layout()
+
+        # override objects from the abstract class
+        self.write_object = WritePythonFile
+        self.script_type = 'Python'
 
     def _layout(self):
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -2235,106 +2206,56 @@ class PythonPanel(wx.Panel):
         try_remove(self.filename)
         self.filename = None
 
-    def SaveAs(self, force=False):
-        """Save python script to file
 
-        :return: filename
+class PyWPSPanel(ScriptPanel):
+
+    def __init__(self, parent, id=wx.ID_ANY,
+                 **kwargs):
+        """Model as pyWPS script.
         """
-        filename = ''
-        dlg = wx.FileDialog(
-            parent=self,
-            message=_("Choose file to save"),
-            defaultFile=os.path.basename(
-                self.parent.GetModelFile(
-                    ext=False)),
-            defaultDir=os.getcwd(),
-            wildcard=_("Python script (*.py)|*.py"),
-            style=wx.FD_SAVE)
+        self.parent = parent
 
-        if dlg.ShowModal() == wx.ID_OK:
-            filename = dlg.GetPath()
+        wx.Panel.__init__(self, parent=parent, id=id, **kwargs)
 
-        if not filename:
-            return ''
+        self.bodyBox = StaticBox(parent=self, id=wx.ID_ANY,
+                                 label=" %s " % _("PyWPS script"))
+        self.body = PyStc(parent=self, statusbar=self.parent.GetStatusBar())
+        if IsDark():
+            SetDarkMode(self.body)
 
-        # check for extension
-        if filename[-3:] != ".py":
-            filename += ".py"
+        self.btnSaveAs = Button(parent=self, id=wx.ID_SAVEAS)
+        self.btnSaveAs.SetToolTip(_("Save PyWPS script to file"))
+        self.Bind(wx.EVT_BUTTON, self.OnSaveAs, self.btnSaveAs)
+        self.btnRefresh = wx.Button(parent=self, id=wx.ID_REFRESH)
+        self.btnRefresh.SetToolTip(_("Refresh PyWPS script.\n"
+                                     "It will discard all local changes."))
+        self.Bind(wx.EVT_BUTTON, self.OnRefresh, self.btnRefresh)
 
-        if os.path.exists(filename):
-            dlg = wx.MessageDialog(
-                self,
-                message=_(
-                    "File <%s> already exists. "
-                    "Do you want to overwrite this file?") %
-                filename,
-                caption=_("Save file"),
-                style=wx.YES_NO | wx.YES_DEFAULT | wx.ICON_QUESTION)
-            if dlg.ShowModal() == wx.ID_NO:
-                dlg.Destroy()
-                return ''
+        self._layout()
 
-            dlg.Destroy()
+        # override objects from the abstract class
+        self.write_object = WritePyWPSFile
+        self.script_type = 'PyWPS'
 
-        fd = open(filename, "w")
-        try:
-            if force:
-                WritePythonFile(fd, self.parent.GetModel())
-            else:
-                fd.write(self.body.GetText())
-        finally:
-            fd.close()
+    def _layout(self):
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        bodySizer = wx.StaticBoxSizer(self.bodyBox, wx.HORIZONTAL)
+        btnSizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        # executable file
-        os.chmod(filename, stat.S_IRWXU | stat.S_IWUSR)
+        bodySizer.Add(self.body, proportion=1,
+                      flag=wx.EXPAND | wx.ALL, border=3)
 
-        return filename
+        btnSizer.Add(self.btnRefresh, proportion=0,
+                     flag=wx.LEFT | wx.RIGHT, border=5)
+        btnSizer.AddStretchSpacer()
+        btnSizer.Add(self.btnSaveAs, proportion=0,
+                     flag=wx.RIGHT, border=5)
 
-    def OnSaveAs(self, event):
-        """Save python script to file"""
-        self.SaveAs(force=False)
-        event.Skip()
+        sizer.Add(bodySizer, proportion=1,
+                  flag=wx.EXPAND | wx.ALL, border=3)
+        sizer.Add(btnSizer, proportion=0,
+                  flag=wx.EXPAND | wx.ALL, border=3)
 
-    def RefreshScript(self):
-        """Refresh Python script
-
-        :return: True on refresh
-        :return: False script hasn't been updated
-        """
-        if self.body.modified:
-            dlg = wx.MessageDialog(
-                self,
-                message=_(
-                    "Python script is locally modificated. "
-                    "Refresh will discard all changes. "
-                    "Do you really want to continue?"),
-                caption=_("Update"),
-                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION | wx.CENTRE)
-            ret = dlg.ShowModal()
-            dlg.Destroy()
-            if ret == wx.ID_NO:
-                return False
-
-        fd = tempfile.TemporaryFile(mode='r+')
-        WritePythonFile(fd, self.parent.GetModel())
-        fd.seek(0)
-        self.body.SetText(fd.read())
-        fd.close()
-
-        self.body.modified = False
-
-        return True
-
-    def OnRefresh(self, event):
-        """Refresh Python script"""
-        if self.RefreshScript():
-            self.parent.SetStatusText(_('Python script is up-to-date'), 0)
-        event.Skip()
-
-    def IsModified(self):
-        """Check if python script has been modified"""
-        return self.body.modified
-
-    def IsEmpty(self):
-        """Check if python script is empty"""
-        return len(self.body.GetText()) == 0
+        sizer.Fit(self)
+        sizer.SetSizeHints(self)
+        self.SetSizer(sizer)
