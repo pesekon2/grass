@@ -672,9 +672,9 @@ class Model(object):
                     '\n'.join(
                         map(
                             lambda x: "%s: %s (%s)" %
-                                      (x[0],
-                                       x[1],
-                                       x[2]),
+                            (x[0],
+                             x[1],
+                             x[2]),
                             err)))
                 return
 
@@ -2956,11 +2956,11 @@ class WritePythonFile:
 #
 #{header_end}
 """.format(header_begin='#' * 77,
-               module_name=properties['name'],
-               author=userName,
-               purpose='\n# '.join(properties['description'].splitlines()),
-               date=time.asctime(),
-               header_end='#' * 77))
+                module_name=properties['name'],
+                author=userName,
+                purpose='\n# '.join(properties['description'].splitlines()),
+                date=time.asctime(),
+                header_end='#' * 77))
 
         # UI
         self.fd.write(
