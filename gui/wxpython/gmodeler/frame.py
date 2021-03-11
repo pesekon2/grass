@@ -1997,7 +1997,7 @@ class PyWPSPanel(wx.Panel):
         self.pyFilename = None  # temp file with python script
 
         self.bodyBox = StaticBox(parent=self, id=wx.ID_ANY,
-                                    label=" %s " % _("PyWPS script"))
+                                 label=" %s " % _("PyWPS script"))
         self.body = PyStc(parent=self, statusbar=self.parent.GetStatusBar())
         if IsDark():
             SetDarkMode(self.body)
@@ -2006,9 +2006,8 @@ class PyWPSPanel(wx.Panel):
         self.btnSaveAs.SetToolTip(_("Save PyWPS script to file"))
         self.Bind(wx.EVT_BUTTON, self.OnSaveAs, self.btnSaveAs)
         self.btnRefresh = wx.Button(parent=self, id=wx.ID_REFRESH)
-        self.btnRefresh.SetToolTip(_(
-            "Refresh PyWPS script.\n"
-            "It will discard all local changes."))
+        self.btnRefresh.SetToolTip(_("Refresh PyWPS script.\n"
+                                     "It will discard all local changes."))
         self.Bind(wx.EVT_BUTTON, self.OnRefresh, self.btnRefresh)
 
         self._layout()
@@ -2025,7 +2024,7 @@ class PyWPSPanel(wx.Panel):
                      flag=wx.LEFT | wx.RIGHT, border=5)
         btnSizer.AddStretchSpacer()
         btnSizer.Add(self.btnSaveAs, proportion=0,
-                     flag=wx.RIGHT | wx.ALIGN_RIGHT, border=5)
+                     flag=wx.RIGHT, border=5)
 
         sizer.Add(bodySizer, proportion=1,
                   flag=wx.EXPAND | wx.ALL, border=3)
