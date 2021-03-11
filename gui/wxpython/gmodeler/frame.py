@@ -2321,8 +2321,6 @@ class PythonPanel(wx.Panel):
         self.body.SetText(fd.read())
         fd.close()
 
-        self.parent.pyWPSPanel.RefreshScript()
-
         self.body.modified = False
 
         return True
