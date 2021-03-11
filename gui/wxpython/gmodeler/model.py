@@ -43,6 +43,7 @@ except ImportError:
 import xml.sax.saxutils as saxutils
 
 import wx
+from abc import ABC
 from wx.lib import ogl
 
 from core import globalvar
@@ -2500,7 +2501,83 @@ class WriteModelFile:
              comment.GetLabel()))
 
 
-class WritePyWPSFile:
+class WriteScriptFile(ABC):
+    """Abstract class for scripts based on the model."""
+
+    def _writeItem(self, item, ignoreBlock=True, variables={}):
+        """Write model object to Python file"""
+        if isinstance(item, ModelAction):
+            if ignoreBlock and item.GetBlockId():
+                # ignore items in loops of conditions
+                return
+            self._writePythonAction(item, variables=variables)
+        elif isinstance(item, ModelLoop) or isinstance(item, ModelCondition):
+            # substitute condition
+            cond = item.GetLabel()
+            for variable in self.model.GetVariables():
+                pattern = re.compile('%' + variable)
+                if pattern.search(cond):
+                    value = variables[variable].get('value', '')
+                    if variables[variable].get('type', 'string') == 'string':
+                        value = '"' + value + '"'
+                    cond = pattern.sub(value, cond)
+            if isinstance(item, ModelLoop):
+                condVar, condText = map(
+                    lambda x: x.strip(),
+                    re.split('\s* in \s*', cond))
+                cond = "%sfor %s in " % (' ' * self.indent, condVar)
+                if condText[0] == '`' and condText[-1] == '`':
+                    task = GUI(
+                        show=None).ParseCommand(
+                        cmd=utils.split(
+                            condText[
+                                1:-
+                                1]))
+                    cond += "grass.read_command("
+                    cond += self._getPythonActionCmd(
+                        task, len(cond), variables=[condVar]) + ".splitlines()"
+                else:
+                    cond += condText
+                self.fd.write('%s:\n' % cond)
+                self.indent += 4
+                variablesLoop = variables.copy()
+                variablesLoop[condVar] = None
+                for action in item.GetItems(
+                        self.model.GetItems(objType=ModelAction)):
+                    self._writeItem(
+                        action, ignoreBlock=False, variables=variablesLoop)
+                self.indent -= 4
+            if isinstance(item, ModelCondition):
+                self.fd.write('%sif %s:\n' % (' ' * self.indent, cond))
+                self.indent += 4
+                condItems = item.GetItems()
+                for action in condItems['if']:
+                    self._writeItem(action, ignoreBlock=False)
+                if condItems['else']:
+                    self.indent -= 4
+                    self.fd.write('%selse:\n' % (' ' * self.indent))
+                    self.indent += 4
+                    for action in condItems['else']:
+                        self._writeItem(action, ignoreBlock=False)
+                self.indent += 4
+        self.fd.write('\n')
+        if isinstance(item, ModelComment):
+            self._writePythonComment(item)
+
+    def _writePythonComment(self, item):
+        """Write model comment to Python file"""
+        for line in item.GetLabel().splitlines():
+            self.fd.write('#' + line + '\n')
+
+    @staticmethod
+    def _getParamName(parameter_name, item):
+        return '{module_name}{module_id}_{param_name}'.format(
+            module_name=re.sub('[^a-zA-Z]+', '', item.GetLabel()),
+            module_id=item.GetId(),
+            param_name=parameter_name)
+
+
+class WritePyWPSFile(WriteScriptFile):
 
     def __init__(self, fd, model):
         """Class for exporting model to PyWPS script
@@ -2659,70 +2736,10 @@ if __name__ == "__main__":
 
     def _writeHandler(self):
         for item in self.model.GetItems():
-            self._writePythonItem(item,
-                                  variables=item.GetParameterizedParams())
+            self._writeItem(item,
+                            variables=item.GetParameterizedParams())
 
         self.fd.write('\n{}return response\n\n'.format(' ' * self.indent))
-
-    def _writePythonItem(self, item, ignoreBlock=True, variables={}):
-        """Write model object to Python file"""
-        if isinstance(item, ModelAction):
-            if ignoreBlock and item.GetBlockId():
-                # ignore items in loops of conditions
-                return
-            self._writePythonAction(item, variables=variables)
-        elif isinstance(item, ModelLoop) or isinstance(item, ModelCondition):
-            # substitute condition
-            cond = item.GetLabel()
-            for variable in self.model.GetVariables():
-                pattern = re.compile('%' + variable)
-                if pattern.search(cond):
-                    value = variables[variable].get('value', '')
-                    if variables[variable].get('type', 'string') == 'string':
-                        value = '"' + value + '"'
-                    cond = pattern.sub(value, cond)
-            if isinstance(item, ModelLoop):
-                condVar, condText = map(
-                    lambda x: x.strip(),
-                    re.split('\s* in \s*', cond))
-                cond = "%sfor %s in " % (' ' * self.indent, condVar)
-                if condText[0] == '`' and condText[-1] == '`':
-                    task = GUI(
-                        show=None).ParseCommand(
-                        cmd=utils.split(
-                            condText[
-                                1:-
-                                1]))
-                    cond += "grass.read_command("
-                    cond += self._getPythonActionCmd(
-                        task, len(cond), variables=[condVar]) + ".splitlines()"
-                else:
-                    cond += condText
-                self.fd.write('%s:\n' % cond)
-                self.indent += 4
-                variablesLoop = variables.copy()
-                variablesLoop[condVar] = None
-                for action in item.GetItems(
-                        self.model.GetItems(objType=ModelAction)):
-                    self._writePythonItem(
-                        action, ignoreBlock=False, variables=variablesLoop)
-                self.indent -= 4
-            if isinstance(item, ModelCondition):
-                self.fd.write('%sif %s:\n' % (' ' * self.indent, cond))
-                self.indent += 4
-                condItems = item.GetItems()
-                for action in condItems['if']:
-                    self._writePythonItem(action, ignoreBlock=False)
-                if condItems['else']:
-                    self.indent -= 4
-                    self.fd.write('%selse:\n' % (' ' * self.indent))
-                    self.indent += 4
-                    for action in condItems['else']:
-                        self._writePythonItem(action, ignoreBlock=False)
-                self.indent += 4
-        self.fd.write('\n')
-        if isinstance(item, ModelComment):
-            self._writePythonComment(item)
 
     def _writePythonAction(self, item, variables={}):
         """Write model action to Python file"""
@@ -2868,17 +2885,6 @@ if __name__ == "__main__":
 
         return ret
 
-    def _writePythonComment(self, item):
-        """Write model comment to Python file"""
-        for line in item.GetLabel().splitlines():
-            self.fd.write('#' + line + '\n')
-
-    def _getParamName(self, parameter_name, item):
-        return '{module_name}{module_id}_{param_name}'.format(
-            module_name=re.sub('[^a-zA-Z]+', '', item.GetLabel()),
-            module_id=item.GetId(),
-            param_name=parameter_name)
-
     def _getParamDesc(self, param):
         if param['label']:
             desc = param['label']
@@ -2901,7 +2907,7 @@ if __name__ == "__main__":
 
         return value
 
-class WritePythonFile:
+class WritePythonFile(WriteScriptFile):
 
     def __init__(self, fd, model):
         """Class for exporting model to Python script
@@ -3053,8 +3059,8 @@ def cleanup():
 
         self.fd.write("\ndef main(options, flags):\n")
         for item in self.model.GetItems():
-            self._writePythonItem(item,
-                                  variables=item.GetParameterizedParams())
+            self._writeItem(item,
+                            variables=item.GetParameterizedParams())
 
         self.fd.write("    return 0\n")
 
@@ -3082,66 +3088,6 @@ if __name__ == "__main__":
             self.fd.write('    os.environ["GRASS_OVERWRITE"] = "1"\n')
 
         self.fd.write('    sys.exit(main(options, flags))\n')
-
-    def _writePythonItem(self, item, ignoreBlock=True, variables={}):
-        """Write model object to Python file"""
-        if isinstance(item, ModelAction):
-            if ignoreBlock and item.GetBlockId():
-                # ignore items in loops of conditions
-                return
-            self._writePythonAction(item, variables=variables)
-        elif isinstance(item, ModelLoop) or isinstance(item, ModelCondition):
-            # substitute condition
-            cond = item.GetLabel()
-            for variable in self.model.GetVariables():
-                pattern = re.compile('%' + variable)
-                if pattern.search(cond):
-                    value = variables[variable].get('value', '')
-                    if variables[variable].get('type', 'string') == 'string':
-                        value = '"' + value + '"'
-                    cond = pattern.sub(value, cond)
-            if isinstance(item, ModelLoop):
-                condVar, condText = map(
-                    lambda x: x.strip(),
-                    re.split('\s* in \s*', cond))
-                cond = "%sfor %s in " % (' ' * self.indent, condVar)
-                if condText[0] == '`' and condText[-1] == '`':
-                    task = GUI(
-                        show=None).ParseCommand(
-                        cmd=utils.split(
-                            condText[
-                                1:-
-                                1]))
-                    cond += "grass.read_command("
-                    cond += self._getPythonActionCmd(
-                        task, len(cond), variables=[condVar]) + ".splitlines()"
-                else:
-                    cond += condText
-                self.fd.write('%s:\n' % cond)
-                self.indent += 4
-                variablesLoop = variables.copy()
-                variablesLoop[condVar] = None
-                for action in item.GetItems(
-                        self.model.GetItems(objType=ModelAction)):
-                    self._writePythonItem(
-                        action, ignoreBlock=False, variables=variablesLoop)
-                self.indent -= 4
-            if isinstance(item, ModelCondition):
-                self.fd.write('%sif %s:\n' % (' ' * self.indent, cond))
-                self.indent += 4
-                condItems = item.GetItems()
-                for action in condItems['if']:
-                    self._writePythonItem(action, ignoreBlock=False)
-                if condItems['else']:
-                    self.indent -= 4
-                    self.fd.write('%selse:\n' % (' ' * self.indent))
-                    self.indent += 4
-                    for action in condItems['else']:
-                        self._writePythonItem(action, ignoreBlock=False)
-                self.indent += 4
-        self.fd.write('\n')
-        if isinstance(item, ModelComment):
-            self._writePythonComment(item)
 
     def _writePythonAction(self, item, variables={}):
         """Write model action to Python file"""
@@ -3219,11 +3165,6 @@ if __name__ == "__main__":
 
         return ret
 
-    def _writePythonComment(self, item):
-        """Write model comment to Python file"""
-        for line in item.GetLabel().splitlines():
-            self.fd.write('#' + line + '\n')
-
     def _substituteVariable(self, string, variable, data):
         """Substitute variable in the string
 
@@ -3258,11 +3199,6 @@ if __name__ == "__main__":
 
         return result.strip('+')
 
-    def _getParamName(self, parameter_name, item):
-        return '{module_name}{module_id}_{param_name}'.format(
-            module_name=re.sub('[^a-zA-Z]+', '', item.GetLabel()),
-            module_id=item.GetId(),
-            param_name=parameter_name)
 
 class ModelParamDialog(wx.Dialog):
 
