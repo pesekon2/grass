@@ -2502,16 +2502,13 @@ class WriteModelFile:
 
 class WritePyWPSFile:
 
-    def __init__(self, filename, pythonScript, model):
+    def __init__(self, fd, model):
         """Class for exporting model to PyWPS script
 
         """
         self.indent = 8
-        pythonScript = open(pythonScript, 'rb')
-        self.readPythonScript = pythonScript.readlines()
-        pythonScript.close()
 
-        self.fd = open(filename, 'w')
+        self.fd = fd
         self.model = model
         self._writePyWPS()
 
@@ -2587,8 +2584,6 @@ if __name__ == "__main__":
     processes = [Model()]
     application = Service(processes)
 """)
-
-        self.fd.close()
 
     def _write_input_outputs(self, item, variables):
         # TODO: Default values

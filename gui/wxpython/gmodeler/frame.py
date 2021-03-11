@@ -2076,20 +2076,14 @@ class PyWPSPanel(wx.Panel):
 
             dlg.Destroy()
 
+        fd = open(filename, "w")
         try:
-            fd = open(self.pyFilename, "w")
-            fd.write(self.parent.pythonPanel.body.GetText())
-
-        except IOError as e:
-            GError(_("Unable to launch Python script. %s") % e,
-                   parent=self)
-            return
+            if force:
+                WritePyWPSFile(fd, self.parent.GetModel())
+            else:
+                fd.write(self.body.GetText())
         finally:
             fd.close()
-            mode = stat.S_IMODE(os.lstat(self.pyFilename)[stat.ST_MODE])
-            os.chmod(self.pyFilename, mode | stat.S_IXUSR)
-
-        WritePyWPSFile(filename, fd.name, self.parent.GetModel())
 
         # executable file
         os.chmod(filename, stat.S_IRWXU | stat.S_IWUSR)
@@ -2126,28 +2120,11 @@ class PyWPSPanel(wx.Panel):
             if ret == wx.ID_NO:
                 return False
 
-        if not self.pyFilename:
-            self.pyFilename = grass.tempfile()
-
-        try:
-            pyfd = open(self.pyFilename, "w")
-            pyfd.write(self.parent.pythonPanel.body.GetText())
-
-        except IOError as e:
-            GError(_("Unable to launch Python script. %s") % e,
-                   parent=self)
-            return
-        finally:
-            pyfd.close()
-            mode = stat.S_IMODE(os.lstat(self.pyFilename)[stat.ST_MODE])
-            os.chmod(self.pyFilename, mode | stat.S_IXUSR)
-
-        pywpsfd = grass.tempfile()
-
-        WritePyWPSFile(pywpsfd, pyfd.name, self.parent.GetModel())
-        fd2 = open(pywpsfd, 'rb')
-        self.body.SetText(fd2.read())
-        fd2.close()
+        fd = tempfile.TemporaryFile(mode='r+')
+        WritePyWPSFile(fd, self.parent.GetModel())
+        fd.seek(0)
+        self.body.SetText(fd.read())
+        fd.close()
 
         self.body.modified = False
 
