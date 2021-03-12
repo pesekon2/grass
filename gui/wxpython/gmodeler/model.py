@@ -2907,6 +2907,7 @@ if __name__ == "__main__":
 
         return value
 
+
 class WritePythonFile(WriteScriptFile):
 
     def __init__(self, fd, model):
