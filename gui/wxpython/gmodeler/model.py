@@ -2878,7 +2878,7 @@ if __name__ == "__main__":
         else:
             ret += ")\n"
 
-        # TODO: Write the nex line only for those not-tagged as intermediate
+        # TODO: Write the next line only for those not-tagged as intermediate
         if out:
             ret += '\n\n{}response.outputs["{}"].file = "{}"'.format(
                 ' ' * self.indent, out, out)
