@@ -2576,6 +2576,38 @@ class WriteScriptFile(ABC):
             module_id=item.GetId(),
             param_name=parameter_name)
 
+    def _getItemFlags(self, item, opts, variables):
+        """Get item flags that are needed to be parsed in the script.
+
+        :param item: module
+        :param opts: options of the task
+        :param variables: variables of the item
+        :return: string with flag names set to True, string with
+            comma-separated flags that are parameterized, list of
+            parameterized boolean parameters like verbose or overwrite (needed
+            as they are also tagged as flags)
+        """
+        item_params = []
+        item_true_flags = ''
+        item_parameterized_flags = []
+
+        parameterized_flags = [v['name'] for v in variables['flags']]
+
+        for f in opts['flags']:
+            if f.get('name') in parameterized_flags and len(f.get('name')) == 1:
+                item_parameterized_flags.append(
+                    '"{}"'.format(self._getParamName(f.get('name'), item)))
+            if f.get('value', False):
+                name = f.get('name', '')
+                if len(name) > 1:
+                    item_params.append('%s=True' % name)
+                else:
+                    item_true_flags += name
+
+        item_parameterized_flags = ', '.join(item_parameterized_flags)
+
+        return item_true_flags, item_parameterized_flags, item_params
+
 
 class WritePyWPSFile(WriteScriptFile):
     """Class for exporting model to PyWPS script."""
@@ -2815,24 +2847,10 @@ if __name__ == "__main__":
         opts = task.get_options()
 
         ret = ''
-        flags = ''
-        params = list()
-        itemParameterizedFlags = list()
         parameterizedParams = [v['name'] for v in variables['params']]
-        parameterizedFlags = [v['name'] for v in variables['flags']]
 
-        for f in opts['flags']:
-            if f.get('name') in parameterizedFlags and len(f.get('name')) == 1:
-                itemParameterizedFlags.append(
-                    '"{}"'.format(self._getParamName(f.get('name'), item)))
-            if f.get('value', False):
-                name = f.get('name', '')
-                if len(name) > 1:
-                    params.append('%s=True' % name)
-                else:
-                    flags += name
-
-        itemParameterizedFlags = ', '.join(itemParameterizedFlags)
+        flags, itemParameterizedFlags, params = self._getItemFlags(item, opts,
+                                                                   variables)
 
         out = None
 
@@ -3108,24 +3126,10 @@ if __name__ == "__main__":
         opts = task.get_options()
 
         ret = ''
-        flags = ''
-        params = list()
-        itemParameterizedFlags = list()
         parameterizedParams = [v['name'] for v in variables['params']]
-        parameterizedFlags = [v['name'] for v in variables['flags']]
 
-        for f in opts['flags']:
-            if f.get('name') in parameterizedFlags and len(f.get('name')) == 1:
-                itemParameterizedFlags.append(
-                    '"{}"'.format(self._getParamName(f.get('name'), item)))
-            if f.get('value', False):
-                name = f.get('name', '')
-                if len(name) > 1:
-                    params.append('%s = True' % name)
-                else:
-                    flags += name
-
-        itemParameterizedFlags = ', '.join(itemParameterizedFlags)
+        flags, itemParameterizedFlags, params = self._getItemFlags(item, opts,
+                                                                   variables)
 
         for p in opts['params']:
             name = p.get('name', None)
