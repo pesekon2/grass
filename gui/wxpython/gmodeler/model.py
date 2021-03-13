@@ -2578,9 +2578,10 @@ class WriteScriptFile(ABC):
 
 
 class WritePyWPSFile(WriteScriptFile):
+    """Class for exporting model to PyWPS script."""
 
     def __init__(self, fd, model):
-        """Class for exporting model to PyWPS script
+        """Class for exporting model to PyWPS script.
 
         """
         self.indent = 8
