@@ -2606,7 +2606,7 @@ from pywps import Process, LiteralInput, ComplexInput, ComplexOutput, Format
 from pywps.app.Service import Service
 from pywps.inout.formats import FORMATS
 
-supFormats = [Format(form.mime_type) for form in FORMATS]
+sup_formats = [Format(form.mime_type) for form in FORMATS]
 
 
 class Model(Process):
@@ -2692,7 +2692,7 @@ if __name__ == "__main__":
             if 'input' in param['name']:
                 io_data = 'inputs'
                 object_type = 'ComplexInput'
-                format_spec = 'supported_formats=supFormats'
+                format_spec = 'supported_formats=sup_formats'
             else:
                 io_data = 'inputs'
                 object_type = 'LiteralInput'
@@ -2712,7 +2712,7 @@ if __name__ == "__main__":
             if param['age'] == 'new':
                 io_data = 'outputs'
                 object_type = 'ComplexOutput'
-                format_spec = 'supported_formats=supFormats'
+                format_spec = 'supported_formats=sup_formats'
 
                 self._write_input_output_object(
                     io_data, object_type, param['name'], item, desc,
