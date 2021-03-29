@@ -2624,7 +2624,6 @@ class WritePyWPSFile(WriteScriptFile):
 
     def _writePyWPS(self):
         """Write PyWPS model to file"""
-        linePos = 18
         properties = self.model.GetProperties()
 
         self.fd.write(r"""#!/usr/bin/env python3
