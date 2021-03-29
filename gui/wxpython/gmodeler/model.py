@@ -2669,7 +2669,7 @@ class Model(Process):
             title='{title}',
             inputs=inputs,
             outputs=outputs,
-            # you can also specify the GRASS location, for example:
+            # here you could also specify the GRASS location, for example:
             # grass_location='EPSG:5514'
             abstract='{abstract}',
             version='1.0',
