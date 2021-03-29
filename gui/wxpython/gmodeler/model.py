@@ -2716,7 +2716,6 @@ if __name__ == "__main__":
             self._write_input_output_object(
                 io_data, object_type, flag['name'], item, desc, format_spec, value)
 
-
         for param in item.GetParameterizedParams()['params']:
             desc = self._getParamDesc(param)
             value = self._getParamValue(param)
