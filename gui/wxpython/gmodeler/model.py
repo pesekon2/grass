@@ -43,7 +43,7 @@ except ImportError:
 import xml.sax.saxutils as saxutils
 
 import wx
-from abc import ABC
+from abc import ABC, abstractmethod
 from wx.lib import ogl
 
 from core import globalvar
@@ -2504,13 +2504,23 @@ class WriteModelFile:
 class WriteScriptFile(ABC):
     """Abstract class for scripts based on the model."""
 
+    @abstractmethod
+    def __init__(self, fd, model):
+        """Constructor to be overriden."""
+        self.fd = None
+        self.model = None
+        self.indent = None
+
+        # call method_write...()
+
     def _writeItem(self, item, ignoreBlock=True, variables={}):
         """Write model object to Python file"""
         if isinstance(item, ModelAction):
             if ignoreBlock and item.GetBlockId():
                 # ignore items in loops of conditions
                 return
-            self._writePythonAction(item, variables=variables)
+            self._writePythonAction(item, variables,
+                                    self.model.GetIntermediateData()[:3])
         elif isinstance(item, ModelLoop) or isinstance(item, ModelCondition):
             # substitute condition
             cond = item.GetLabel()
@@ -2616,10 +2626,10 @@ class WritePyWPSFile(WriteScriptFile):
         """Class for exporting model to PyWPS script.
 
         """
-        self.indent = 8
-
         self.fd = fd
         self.model = model
+        self.indent = 8
+
         self._writePyWPS()
 
     def _writePyWPS(self):
@@ -2650,7 +2660,7 @@ class Model(Process):
 
         for item in self.model.GetItems():
             self._write_input_outputs(item,
-                                      variables=item.GetParameterizedParams())
+                                      self.model.GetIntermediateData()[:3])
 
         # TODO: Specify grass_location
         self.fd.write(r"""        super(Model, self).__init__(
@@ -2694,7 +2704,7 @@ if __name__ == "__main__":
     application = Service(processes)
 """)
 
-    def _write_input_outputs(self, item, variables):
+    def _write_input_outputs(self, item, intermediates):
         # TODO: Default values
         for flag in item.GetParameterizedParams()['flags']:
             if flag['label']:
@@ -2737,19 +2747,19 @@ if __name__ == "__main__":
         # write ComplexOutputs
         for param in item.GetParams()['params']:
             desc = self._getParamDesc(param)
-            value = self._getParamValue(param)
+            value = param['value']
+            age = param['age']
 
-            if param['age'] == 'new':
+            if age == 'new' and not any(value in i for i in intermediates):
                 io_data = 'outputs'
                 object_type = 'ComplexOutput'
                 format_spec = 'supported_formats=sup_formats'
 
                 self._write_input_output_object(
                     io_data, object_type, param['name'], item, desc,
-                    format_spec,
-                    value)
+                    format_spec, self._getParamValue(param))
 
-        self.fd.write('\n')
+                self.fd.write('\n')
 
     def _write_input_output_object(self, io_data, object_type, name, item,
                                    desc, format_spec, value):
@@ -2772,7 +2782,7 @@ if __name__ == "__main__":
 
         self.fd.write('\n{}return response\n\n'.format(' ' * self.indent))
 
-    def _writePythonAction(self, item, variables={}):
+    def _writePythonAction(self, item, variables={}, intermediates=None):
         """Write model action to Python file"""
         task = GUI(show=None).ParseCommand(cmd=item.GetLog(string=False))
         strcmd = "\n%srun_command(" % (' ' * self.indent)
@@ -2786,7 +2796,10 @@ if __name__ == "__main__":
 
         # write v.out.ogr and r.out.gdal exports for all outputs
         for param in item.GetParams()['params']:
-            if param['age'] == 'new':
+            value = param['value']
+            age = param['age']
+
+            if age == 'new' and not any(value in i for i in intermediates):
                 if param['prompt'] == 'vector':
                     command = 'v.out.ogr'
                     format = "'GML'"
@@ -3107,7 +3120,7 @@ if __name__ == "__main__":
 
         self.fd.write('    sys.exit(main(options, flags))\n')
 
-    def _writePythonAction(self, item, variables={}):
+    def _writePythonAction(self, item, variables={}, intermediates=None):
         """Write model action to Python file"""
         task = GUI(show=None).ParseCommand(cmd=item.GetLog(string=False))
         strcmd = "%srun_command(" % (' ' * self.indent)
