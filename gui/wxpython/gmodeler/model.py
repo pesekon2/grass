@@ -2662,7 +2662,6 @@ class Model(Process):
             self._write_input_outputs(item,
                                       self.model.GetIntermediateData()[:3])
 
-        # TODO: Specify grass_location
         self.fd.write(r"""        super(Model, self).__init__(
             self._handler,
             identifier='{identifier}',
