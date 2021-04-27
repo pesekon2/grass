@@ -38,6 +38,7 @@ The Graphical Modeler allows you to:
   <li>validate and run model</li>
   <li>save model properties to a file (<i>GRASS Model File|*.gxm</i>)</li>
   <li>export model to Python script</li>
+  <li>export model to Python script in the form of a PyWPS process</li>
   <li>export model to image file</li>
 </ul>
 
@@ -82,10 +83,12 @@ data and commands,
 There is also a lower menu bar in the Graphical modeler dialog where one can
 manage model items, visualize commands, add or manage model variables,
 define default values and descriptions. The Python editor dialog window
-allows seeing workflows written in Python code. The rightmost tab of
-the bottom menu is automatically triggered when the model is activated and
-shows all the steps of running GRASS modeler modules. In case of errors
-in the calculation process, it is written at that place.
+allows seeing workflows written in Python code. The PyWPS editor tab
+allows seeing workflows written in Python code in the form of a PyWPS process.
+The rightmost tab of the bottom menu is automatically triggered when
+the model is activated and shows all the steps of running GRASS modeler
+modules. In case of errors in the calculation process, it is written at that
+place.
 
 <center>
 <a href="g_gui_gmodeler_lower_toolbar.png"><img src="g_gui_gmodeler_lower_toolbar.png" width="600" height="354"></a>
@@ -356,6 +359,12 @@ The result is shown in the Figure below:
 <br>
 <i>Figure: Python editor in the wxGUI Graphical Modeler.</i>
 </center>
+
+<h3>Using the PyWPS editor</h3>
+The PyWPS tab generates a PyWPS process based on the user's model. As a PyWPS
+process is a Python script, the user can modify it to do some extra operations
+that the model itself could not perform. The user can then export this script
+and implement it as his web processing service.
 
 <h3>Defining loops</h3>
 In the example below the <a href="https://e4ftl01.cr.usgs.gov/MOLT/MOD13Q1.006/">MODIS MOD13Q1</a>
