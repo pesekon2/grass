@@ -762,6 +762,11 @@ class ModelFrame(wx.Frame):
         filename = self.pythonPanel.SaveAs(force=True)
         self.SetStatusText(_("Model exported to <%s>") % filename)
 
+    def OnExportPyWPS(self, event=None, text=None):
+        """Export model to Python script"""
+        filename = self.pyWPSPanel.SaveAs(force=True)
+        self.SetStatusText(_("Model exported to <%s>") % filename)
+
     def OnDefineRelation(self, event):
         """Define relation between data and action items"""
         self.canvas.SetCursor(self.cursors["cross"])

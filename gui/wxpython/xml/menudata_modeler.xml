@@ -43,6 +43,11 @@
 	  <handler>OnExportPython</handler>
 	  <shortcut>Ctrl+P</shortcut>
 	</menuitem>
+	<menuitem>
+	  <label>Export as a PyWPS process</label>
+	  <help>Export model to Python script in the form of a PyWPS process</help>
+	  <handler>OnExportPyWPS</handler>
+	</menuitem>
 	<separator />
 	<menuitem>
 	  <label>Quit modeler</label>
